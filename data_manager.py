@@ -6,7 +6,9 @@ SETTINGS_FILE = "settings.json"
 
 DEFAULT_SETTINGS = {
     "api_key": "",
-    "characters": {}
+    "characters": {},
+    "requests_per_minute": 10,
+    "requests_per_day": 50
 }
 
 class DataManager:
@@ -19,7 +21,12 @@ class DataManager:
 
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                settings = json.load(f)
+                # Ensure all default keys exist
+                for key, value in DEFAULT_SETTINGS.items():
+                    if key not in settings:
+                        settings[key] = value
+                return settings
         except (json.JSONDecodeError, IOError):
             # Fallback if file is corrupted
             return DEFAULT_SETTINGS.copy()
@@ -38,6 +45,21 @@ class DataManager:
     def save_api_key(api_key: str):
         settings = DataManager.load_settings()
         settings["api_key"] = api_key
+        DataManager.save_settings(settings)
+
+    @staticmethod
+    def get_limits() -> tuple[int, int]:
+        settings = DataManager.load_settings()
+        return (
+            settings.get("requests_per_minute", 10),
+            settings.get("requests_per_day", 50)
+        )
+
+    @staticmethod
+    def save_limits(per_minute: int, per_day: int):
+        settings = DataManager.load_settings()
+        settings["requests_per_minute"] = per_minute
+        settings["requests_per_day"] = per_day
         DataManager.save_settings(settings)
 
     @staticmethod
