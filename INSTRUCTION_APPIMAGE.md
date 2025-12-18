@@ -108,21 +108,9 @@ if __name__ == '__main__':
     main()
 ```
 
-## Шаг 2: Установка зависимостей
+## Шаг 2: Конфигурация сборки
 
-Вам понадобится утилита `appimage-builder`. Установите её:
-
-```bash
-# Установка appimage-builder (требуется python3 и pip)
-# Рекомендуется использовать виртуальное окружение, но для сборки можно поставить глобально или через pipx
-pip install appimage-builder
-```
-
-Также убедитесь, что у вас установлен Docker (он часто используется `appimage-builder` для развертывания чистого окружения), или убедитесь, что ваша система соответствует требованиям (Ubuntu 20.04+ или аналоги).
-
-## Шаг 3: Конфигурация сборки
-
-Создайте файл `AppImageBuilder.yml` в корне репозитория. Этот файл описывает, как собирать приложение.
+Создайте файл `AppImageBuilder.yml` в корне репозитория.
 
 **Содержимое `AppImageBuilder.yml`:**
 
@@ -134,7 +122,7 @@ AppDir:
   app_info:
     id: org.gemini.tts
     name: GeminiTTS
-    icon: utilities-terminal # Можно заменить на путь к иконке (например, icon.png)
+    icon: utilities-terminal
     version: 1.0.0
     exec: usr/bin/python3
     exec_args: "$APPDIR/usr/src/app/run_desktop.py"
@@ -156,6 +144,19 @@ AppDir:
       - libwebkit2gtk-4.0-dev
       - gir1.2-webkit2-4.0
     exclude: []
+
+  # Скрипт сборки и копирования
+  after_apt:
+    # 1. Установка pip и зависимостей
+    - python3 -m pip install --upgrade pip
+    - python3 -m pip install --ignore-installed --prefix=$APPDIR/usr -r requirements.txt
+    - python3 -m pip install --ignore-installed --prefix=$APPDIR/usr pywebview
+
+    # 2. Копирование исходного кода приложения в AppImage
+    - mkdir -p $APPDIR/usr/src/app
+    - cp -r *.py $APPDIR/usr/src/app/
+    - cp -r *.json $APPDIR/usr/src/app/ 2>/dev/null || true
+    - cp -r *.txt $APPDIR/usr/src/app/
 
   files:
     include: []
@@ -186,55 +187,41 @@ AppImage:
   update-information: guess
 ```
 
-> **Важно:** Приведенная выше конфигурация использует репозитории Ubuntu Jammy (22.04). В зависимости от версии `appimage-builder` и вашей системы, вам может потребоваться скрипт для установки pip-пакетов внутрь AppDir.
+## Шаг 3: Сборка (AppImage)
 
-Однако, `appimage-builder` имеет удобный режим `bundle-python`, который часто проще в настройке. Но самый надежный способ для сложных зависимостей (как streamlit и webview) — это выполнить установку `pip` вручную перед упаковкой.
+Поскольку для сборки используется инструмент `appimage-builder`, который может быть несовместим с новейшими версиями Python (например, 3.13) из-за зависимостей, **рекомендуется выполнять сборку через Docker**.
 
-**Альтернативный (простой) способ сборки через скрипт:**
+### Вариант А: Сборка через Docker (Рекомендуемый)
 
-Вместо сложного yaml, можно подготовить `AppDir` вручную и упаковать его. Вот последовательность команд, которую нужно выполнить в терминале:
+Этот способ гарантирует, что у вас будет чистое окружение, и избавит от ошибок установки зависимостей.
+
+1. Убедитесь, что у вас установлен Docker.
+2. Откройте терминал в папке проекта (где лежит `AppImageBuilder.yml`).
+3. Запустите команду сборки:
 
 ```bash
-# 1. Создаем структуру AppDir
-mkdir -p AppDir/usr/src/app
-
-# 2. Копируем исходный код
-cp *.py *.txt *.json AppDir/usr/src/app/
-cp run_desktop.py AppDir/usr/src/app/
-
-# 3. Устанавливаем зависимости в AppDir
-# Важно: используем pip для установки прямо в директорию
-python3 -m pip install --ignore-installed --prefix=$(pwd)/AppDir/usr -r requirements.txt
-python3 -m pip install --ignore-installed --prefix=$(pwd)/AppDir/usr pywebview
-
-# 4. Копируем сам python (если хотим полную автономность)
-# Это сложный шаг, обычно appimage-builder делает это сам.
-# Если вы используете appimage-builder, вернитесь к YAML файлу выше.
+docker run --privileged --rm -v $(pwd):/app -w /app appimagecrafters/appimage-builder:latest appimage-builder --recipe AppImageBuilder.yml --skip-test
 ```
 
-**Рекомендуемый процесс с `appimage-builder`:**
+> Флаг `--skip-test` используется, чтобы избежать ошибок с FUSE внутри Docker контейнера. Если вы хотите прогнать тесты, вам потребуется более сложная настройка привилегий Docker.
 
-1.  Убедитесь, что `requirements.txt` содержит `pywebview`. Если нет, добавьте его временно или установите вручную в процессе.
-2.  Обновите `AppImageBuilder.yml` добавив секцию `script` для установки зависимостей pip:
+### Вариант Б: Локальная установка (Только для Python 3.12 и ниже)
 
-Вставьте это в `AppDir` секцию (после `apt`):
+Если вы используете **Python 3.13**, локальная установка `appimage-builder` может завершиться ошибкой. Используйте вариант с Docker или создайте виртуальное окружение с Python 3.10-3.12.
 
-```yaml
-  after_apt:
-    - python3 -m pip install --upgrade pip
-    - python3 -m pip install --ignore-installed --prefix=$APPDIR/usr -r requirements.txt
-    - python3 -m pip install --ignore-installed --prefix=$APPDIR/usr pywebview
+1. Установите `appimage-builder`:
+```bash
+pip install appimage-builder
 ```
 
-3.  Запустите сборку:
-
+2. Запустите сборку:
 ```bash
 appimage-builder --recipe AppImageBuilder.yml
 ```
 
-## Запуск
+## Результат
 
-После успешной сборки в папке появится файл (например, `GeminiTTS-1.0.0-x86_64.AppImage`).
+После завершения сборки в папке появится файл (например, `GeminiTTS-1.0.0-x86_64.AppImage`).
 Сделайте его исполняемым и запустите:
 
 ```bash
