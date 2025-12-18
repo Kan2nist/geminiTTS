@@ -129,7 +129,7 @@ def create_gauge(current, limit, title):
         mode = "gauge+number",
         value = current,
         title = {'text': title, 'font': {'size': 14}},
-        number = {'font': {'size': 20}},
+        number = {'font': {'size': 16}},
         domain = {'x': [0, 1], 'y': [0, 1]},
         gauge = {
             'axis': {'range': [0, limit], 'tickwidth': 1, 'tickfont': {'size': 10}},
@@ -150,7 +150,7 @@ def create_gauge(current, limit, title):
         }
     ))
     # Reduced height and margins for smaller footprint
-    fig.update_layout(height=140, margin=dict(l=15, r=15, t=30, b=10))
+    fig.update_layout(height=140, margin=dict(l=35, r=35, t=30, b=10))
     return fig
 
 def render_history_view():
