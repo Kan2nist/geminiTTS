@@ -148,8 +148,8 @@ def create_donut_chart(current, limit, title):
     fig.update_layout(
         annotations=[dict(text=f"{current}/{limit}", x=0.5, y=0.5, font_size=20, showarrow=False)],
         showlegend=False,
-        height=140,
-        margin=dict(l=20, r=20, t=20, b=20),
+        height=120,
+        margin=dict(l=20, r=20, t=20, b=0),
         paper_bgcolor='rgba(0,0,0,0)'
     )
     return fig
