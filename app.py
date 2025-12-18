@@ -195,4 +195,9 @@ def generate_audio_batch(script_text: str):
             st.warning("No files were generated.")
 
 if __name__ == "__main__":
-    main()
+    import sys
+    from streamlit.web import cli as stcli
+    sys.argv = ["streamlit", "run", sys.argv[0]]
+    sys.exit(stcli.main())
+
+main()
