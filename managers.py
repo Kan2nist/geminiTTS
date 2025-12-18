@@ -62,6 +62,20 @@ class RateLimiter:
 
         RateLimiter.save_usage(timestamps)
 
+    @staticmethod
+    def get_usage_stats() -> dict[str, int]:
+        """Returns current usage counts."""
+        timestamps = RateLimiter.load_usage()
+        now = time.time()
+
+        last_minute = [t for t in timestamps if now - t < 60]
+        last_day = [t for t in timestamps if now - t < 86400]
+
+        return {
+            "used_min": len(last_minute),
+            "used_day": len(last_day)
+        }
+
 class HistoryManager:
     @staticmethod
     def ensure_cache_dir():

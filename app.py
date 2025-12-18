@@ -3,6 +3,7 @@ import os
 import tempfile
 import shutil
 import zipfile
+import plotly.graph_objects as go
 from data_manager import DataManager
 from managers import RateLimiter, HistoryManager
 from tts_engine import generate_speech
@@ -46,6 +47,15 @@ def main():
         if new_limit_min != limit_min or new_limit_day != limit_day:
             DataManager.save_limits(new_limit_min, new_limit_day)
             st.success("Limits saved!")
+
+        # Rate Limit Gauges
+        stats = RateLimiter.get_usage_stats()
+
+        fig_min = create_gauge(stats["used_min"], new_limit_min, "Current / Min")
+        st.plotly_chart(fig_min, use_container_width=True)
+
+        fig_day = create_gauge(stats["used_day"], new_limit_day, "Current / Day")
+        st.plotly_chart(fig_day, use_container_width=True)
 
         st.divider()
 
@@ -115,6 +125,33 @@ def main():
     st.divider()
     with st.expander("📜 Request History"):
         render_history_view()
+
+def create_gauge(current, limit, title):
+    fig = go.Figure(go.Indicator(
+        mode = "gauge+number",
+        value = current,
+        title = {'text': title},
+        domain = {'x': [0, 1], 'y': [0, 1]},
+        gauge = {
+            'axis': {'range': [0, limit], 'tickwidth': 1},
+            'bar': {'color': "#1f77b4"},
+            'bgcolor': "white",
+            'borderwidth': 2,
+            'bordercolor': "gray",
+            'steps': [
+                {'range': [0, limit * 0.5], 'color': '#e6f9e6'}, # light green
+                {'range': [limit * 0.5, limit * 0.8], 'color': '#ffffe0'}, # light yellow
+                {'range': [limit * 0.8, limit], 'color': '#ffe6e6'} # light red
+            ],
+            'threshold': {
+                'line': {'color': "red", 'width': 4},
+                'thickness': 0.75,
+                'value': limit
+            }
+        }
+    ))
+    fig.update_layout(height=200, margin=dict(l=20, r=20, t=30, b=20))
+    return fig
 
 def render_history_view():
     col_hist_1, col_hist_2 = st.columns([4, 1])
@@ -360,6 +397,7 @@ def regenerate_task_audio(task, temp_dir):
             task["versions"].append(output_file)
             task["selected_index"] = len(task["versions"]) - 1
             st.success(f"Regenerated {task['filename']}")
+            st.rerun()
         else:
             st.error(f"Failed to regenerate {task['filename']}")
     except Exception as e:
