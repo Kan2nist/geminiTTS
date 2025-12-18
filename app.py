@@ -37,25 +37,23 @@ def main():
 
         # Rate Limits
         limit_min, limit_day = DataManager.get_limits()
+        stats = RateLimiter.get_usage_stats()
+
         st.caption("Rate Limits")
         col_lim1, col_lim2 = st.columns(2)
         with col_lim1:
             new_limit_min = st.number_input("Req / Min", value=limit_min, min_value=1)
+            fig_min = create_gauge(stats["used_min"], new_limit_min, "Used / Min")
+            st.plotly_chart(fig_min, use_container_width=True)
+
         with col_lim2:
             new_limit_day = st.number_input("Req / Day", value=limit_day, min_value=1)
+            fig_day = create_gauge(stats["used_day"], new_limit_day, "Used / Day")
+            st.plotly_chart(fig_day, use_container_width=True)
 
         if new_limit_min != limit_min or new_limit_day != limit_day:
             DataManager.save_limits(new_limit_min, new_limit_day)
             st.success("Limits saved!")
-
-        # Rate Limit Gauges
-        stats = RateLimiter.get_usage_stats()
-
-        fig_min = create_gauge(stats["used_min"], new_limit_min, "Current / Min")
-        st.plotly_chart(fig_min, use_container_width=True)
-
-        fig_day = create_gauge(stats["used_day"], new_limit_day, "Current / Day")
-        st.plotly_chart(fig_day, use_container_width=True)
 
         st.divider()
 
@@ -130,10 +128,11 @@ def create_gauge(current, limit, title):
     fig = go.Figure(go.Indicator(
         mode = "gauge+number",
         value = current,
-        title = {'text': title},
+        title = {'text': title, 'font': {'size': 14}},
+        number = {'font': {'size': 20}},
         domain = {'x': [0, 1], 'y': [0, 1]},
         gauge = {
-            'axis': {'range': [0, limit], 'tickwidth': 1},
+            'axis': {'range': [0, limit], 'tickwidth': 1, 'tickfont': {'size': 10}},
             'bar': {'color': "#1f77b4"},
             'bgcolor': "white",
             'borderwidth': 2,
@@ -150,7 +149,8 @@ def create_gauge(current, limit, title):
             }
         }
     ))
-    fig.update_layout(height=200, margin=dict(l=20, r=20, t=30, b=20))
+    # Reduced height and margins for smaller footprint
+    fig.update_layout(height=140, margin=dict(l=15, r=15, t=30, b=10))
     return fig
 
 def render_history_view():
