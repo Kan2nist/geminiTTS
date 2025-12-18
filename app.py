@@ -4,6 +4,7 @@ import tempfile
 import shutil
 import zipfile
 from data_manager import DataManager
+from managers import RateLimiter, HistoryManager
 from tts_engine import generate_speech
 
 # Constants
@@ -32,6 +33,19 @@ def main():
         if api_key_input != current_api_key:
             DataManager.save_api_key(api_key_input)
             st.success("API Key saved!")
+
+        # Rate Limits
+        limit_min, limit_day = DataManager.get_limits()
+        st.caption("Rate Limits")
+        col_lim1, col_lim2 = st.columns(2)
+        with col_lim1:
+            new_limit_min = st.number_input("Req / Min", value=limit_min, min_value=1)
+        with col_lim2:
+            new_limit_day = st.number_input("Req / Day", value=limit_day, min_value=1)
+
+        if new_limit_min != limit_min or new_limit_day != limit_day:
+            DataManager.save_limits(new_limit_min, new_limit_day)
+            st.success("Limits saved!")
 
         st.divider()
 
@@ -96,6 +110,39 @@ def main():
 
     if "batch_results" in st.session_state:
         render_batch_review()
+
+    # --- History Section ---
+    st.divider()
+    with st.expander("📜 Request History"):
+        render_history_view()
+
+def render_history_view():
+    col_hist_1, col_hist_2 = st.columns([4, 1])
+    with col_hist_1:
+        st.write("View past generation requests and results.")
+    with col_hist_2:
+        if st.button("Clear History", type="secondary"):
+            HistoryManager.clear_history()
+            st.rerun()
+
+    history = HistoryManager.get_history()
+    if not history:
+        st.info("No history found.")
+        return
+
+    # Pagination or Limit could be useful, but for now show all (maybe limit to last 50 for performance if list gets huge)
+    for entry in history:
+        with st.container():
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.caption(f"{entry['timestamp']} | {entry['char_name']} ({entry['voice']})")
+                st.text(entry['text'])
+            with col2:
+                if os.path.exists(entry['audio_path']):
+                    st.audio(entry['audio_path'])
+                else:
+                    st.warning("File missing")
+            st.markdown("---")
 
 def initialize_batch_generation(script_text: str):
     api_key = DataManager.get_api_key()
@@ -167,6 +214,12 @@ def initialize_batch_generation(script_text: str):
         voice = task["config"]["voice"]
         style = task["config"]["style"]
 
+        # Check Rate Limit
+        allowed, msg = RateLimiter.check_limit()
+        if not allowed:
+            st.error(f"Stopped at {task['filename']}: {msg}")
+            break
+
         try:
             # Call TTS Engine
             success = generate_speech(
@@ -178,6 +231,8 @@ def initialize_batch_generation(script_text: str):
             )
 
             if success:
+                RateLimiter.log_request()
+                HistoryManager.add_entry(char_name, task["text"], voice, style, output_file)
                 task["versions"].append(output_file)
                 successful_tasks.append(task)
             else:
@@ -276,6 +331,12 @@ def regenerate_task_audio(task, temp_dir):
         st.error("Missing API Key or Temp Directory.")
         return
 
+    # Check Rate Limit
+    allowed, msg = RateLimiter.check_limit()
+    if not allowed:
+        st.error(f"Cannot regenerate: {msg}")
+        return
+
     # Generate new version
     version_count = len(task["versions"]) + 1
     output_filename = f"{task['filename']}_v{version_count}.wav"
@@ -294,6 +355,8 @@ def regenerate_task_audio(task, temp_dir):
         )
 
         if success:
+            RateLimiter.log_request()
+            HistoryManager.add_entry(task["char_name"], task["text"], voice, style, output_file)
             task["versions"].append(output_file)
             task["selected_index"] = len(task["versions"]) - 1
             st.success(f"Regenerated {task['filename']}")
