@@ -39,17 +39,17 @@ def main():
         limit_min, limit_day = DataManager.get_limits()
         st.caption("Rate Limits")
         col_lim1, col_lim2 = st.columns(2)
-        # Rate Limit Gauges
+        # Rate Limit Charts
         stats = RateLimiter.get_usage_stats()
 
         with col_lim1:
             new_limit_min = st.number_input("Req / Min", value=limit_min, min_value=1)
-            fig_min = create_gauge(stats["used_min"], new_limit_min, "Current / Min")
+            fig_min = create_donut_chart(stats["used_min"], new_limit_min, "Used")
             st.plotly_chart(fig_min, use_container_width=True, config={'displayModeBar': False})
 
         with col_lim2:
             new_limit_day = st.number_input("Req / Day", value=limit_day, min_value=1)
-            fig_day = create_gauge(stats["used_day"], new_limit_day, "Current / Day")
+            fig_day = create_donut_chart(stats["used_day"], new_limit_day, "Used")
             st.plotly_chart(fig_day, use_container_width=True, config={'displayModeBar': False})
 
         if new_limit_min != limit_min or new_limit_day != limit_day:
@@ -126,45 +126,31 @@ def main():
         render_history_view()
 
 
-def create_gauge(current, limit, title):
-    # To mimic the speedometer look (semi-circle), we need to trick Plotly's gauge.
-    # Standard gauge is 270 degrees.
-    # However, a simple clean gauge with enough margin is often best.
-    # The user complained about visibility, so we maximize margins relative to the container.
+def create_donut_chart(current, limit, title):
+    remaining = max(0, limit - current)
+    # If over limit, remaining is 0, but current shows full usage
 
-    fig = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = current,
-        title = {'text': title, 'font': {'size': 14, 'color': "gray"}},
-        number = {'font': {'size': 24, 'color': "#404040"}},
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        gauge = {
-            'axis': {'range': [0, limit], 'tickwidth': 1, 'tickfont': {'size': 10, 'color': "gray"}},
-            'bar': {'color': "#1f77b4"},
-            'bgcolor': "white",
-            'borderwidth': 2,
-            'bordercolor': "gray",
-            'steps': [
-                {'range': [0, limit * 0.5], 'color': '#e6f9e6'},
-                {'range': [limit * 0.5, limit * 0.8], 'color': '#ffffe0'},
-                {'range': [limit * 0.8, limit], 'color': '#ffe6e6'}
-            ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': limit
-            }
-        }
-    ))
+    # Colors: Used (Blue), Remaining (Light Gray)
+    # If over limit, Used becomes Red
+    color_used = "#1f77b4"
+    if current >= limit:
+        color_used = "#d62728" # Red
 
-    # We use a reasonably small height but ensure margins are sufficient for labels.
-    # 35px left/right should be enough for "10" or "50".
-    # Bottom margin is small because gauge usually has empty space at bottom.
+    fig = go.Figure(data=[go.Pie(
+        labels=['Used', 'Remaining'],
+        values=[current, remaining],
+        hole=.7,
+        marker_colors=[color_used, "#e6e6e6"],
+        textinfo='none', # Hide labels on the chart itself
+        sort=False
+    )])
+
     fig.update_layout(
+        annotations=[dict(text=f"{current}/{limit}", x=0.5, y=0.5, font_size=20, showarrow=False)],
+        showlegend=False,
         height=140,
-        margin=dict(l=35, r=35, t=30, b=0),
-        paper_bgcolor='rgba(0,0,0,0)',
-        font={'color': "gray"}
+        margin=dict(l=20, r=20, t=20, b=20),
+        paper_bgcolor='rgba(0,0,0,0)'
     )
     return fig
 
