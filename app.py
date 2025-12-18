@@ -37,19 +37,20 @@ def main():
 
         # Rate Limits
         limit_min, limit_day = DataManager.get_limits()
-        stats = RateLimiter.get_usage_stats()
-
         st.caption("Rate Limits")
         col_lim1, col_lim2 = st.columns(2)
+        # Rate Limit Gauges
+        stats = RateLimiter.get_usage_stats()
+
         with col_lim1:
             new_limit_min = st.number_input("Req / Min", value=limit_min, min_value=1)
             fig_min = create_gauge(stats["used_min"], new_limit_min, "Current / Min")
-            st.plotly_chart(fig_min, use_container_width=True)
+            st.plotly_chart(fig_min, use_container_width=True, config={'displayModeBar': False})
 
         with col_lim2:
             new_limit_day = st.number_input("Req / Day", value=limit_day, min_value=1)
             fig_day = create_gauge(stats["used_day"], new_limit_day, "Current / Day")
-            st.plotly_chart(fig_day, use_container_width=True)
+            st.plotly_chart(fig_day, use_container_width=True, config={'displayModeBar': False})
 
         if new_limit_min != limit_min or new_limit_day != limit_day:
             DataManager.save_limits(new_limit_min, new_limit_day)
@@ -124,23 +125,29 @@ def main():
     with st.expander("📜 Request History"):
         render_history_view()
 
+
 def create_gauge(current, limit, title):
+    # To mimic the speedometer look (semi-circle), we need to trick Plotly's gauge.
+    # Standard gauge is 270 degrees.
+    # However, a simple clean gauge with enough margin is often best.
+    # The user complained about visibility, so we maximize margins relative to the container.
+
     fig = go.Figure(go.Indicator(
         mode = "gauge+number",
         value = current,
         title = {'text': title, 'font': {'size': 14, 'color': "gray"}},
-        number = {'font': {'size': 30, 'color': "#404040"}},
+        number = {'font': {'size': 24, 'color': "#404040"}},
         domain = {'x': [0, 1], 'y': [0, 1]},
         gauge = {
-            'axis': {'range': [0, limit], 'tickwidth': 1, 'tickfont': {'size': 12, 'color': "gray"}},
+            'axis': {'range': [0, limit], 'tickwidth': 1, 'tickfont': {'size': 10, 'color': "gray"}},
             'bar': {'color': "#1f77b4"},
             'bgcolor': "white",
             'borderwidth': 2,
             'bordercolor': "gray",
             'steps': [
-                {'range': [0, limit * 0.5], 'color': '#e6f9e6'}, # light green
-                {'range': [limit * 0.5, limit * 0.8], 'color': '#ffffe0'}, # light yellow
-                {'range': [limit * 0.8, limit], 'color': '#ffe6e6'} # light red
+                {'range': [0, limit * 0.5], 'color': '#e6f9e6'},
+                {'range': [limit * 0.5, limit * 0.8], 'color': '#ffffe0'},
+                {'range': [limit * 0.8, limit], 'color': '#ffe6e6'}
             ],
             'threshold': {
                 'line': {'color': "red", 'width': 4},
@@ -149,10 +156,13 @@ def create_gauge(current, limit, title):
             }
         }
     ))
-    # Reduced height and margins for smaller footprint, but enough for labels
+
+    # We use a reasonably small height but ensure margins are sufficient for labels.
+    # 35px left/right should be enough for "10" or "50".
+    # Bottom margin is small because gauge usually has empty space at bottom.
     fig.update_layout(
-        height=150,
-        margin=dict(l=40, r=40, t=30, b=10),
+        height=140,
+        margin=dict(l=35, r=35, t=30, b=0),
         paper_bgcolor='rgba(0,0,0,0)',
         font={'color': "gray"}
     )
