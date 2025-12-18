@@ -22,7 +22,7 @@ GEMINI_VOICES = [
 def main():
     st.set_page_config(page_title="Gemini TTS Studio", layout="wide")
     st.title("🎙️ Gemini TTS Studio")
-    st.markdown("Generate voiceovers for your characters using **Gemini 2.5 Pro TTS**.")
+    st.markdown("Generate voiceovers for your characters using **Gemini TTS**.")
 
     # --- Sidebar ---
     with st.sidebar:
