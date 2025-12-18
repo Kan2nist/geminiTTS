@@ -79,7 +79,7 @@ def convert_to_wav(audio_data: bytes, mime_type: str) -> bytes:
     )
     return header + audio_data
 
-def generate_speech(api_key: str, text: str, voice_name: str, style_instructions: str, output_path: str):
+def generate_speech(api_key: str, text: str, voice_name: str, style_instructions: str, output_path: str, model_name: str):
     """
     Generates speech using Gemini API and saves to output_path.
 
@@ -89,9 +89,10 @@ def generate_speech(api_key: str, text: str, voice_name: str, style_instructions
         voice_name: The name of the voice to use.
         style_instructions: Instructions for style/tone.
         output_path: The full path where the .wav file should be saved.
+        model_name: The name of the Gemini model to use.
     """
     client = genai.Client(api_key=api_key)
-    model = "gemini-2.5-pro-preview-tts"
+    model = model_name
 
     # Construct the prompt with style instructions
     if style_instructions:

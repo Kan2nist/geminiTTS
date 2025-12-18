@@ -35,26 +35,68 @@ def main():
             DataManager.save_api_key(api_key_input)
             st.success("API Key saved!")
 
-        # Rate Limits
-        limit_min, limit_day = DataManager.get_limits()
-        st.caption("Rate Limits")
+        st.divider()
+
+        # Model Selection
+        st.subheader("Model Selection")
+        available_models = DataManager.get_models()
+        active_model = DataManager.get_active_model()
+
+        # Ensure active_model is valid (handle edge cases where list might be empty or out of sync)
+        if not available_models:
+             # Should be handled by DataManager logic, but just in case
+             available_models = ["gemini-2.5-pro-tts"]
+             active_model = "gemini-2.5-pro-tts"
+
+        selected_model = st.selectbox(
+            "Select Gemini Model",
+            options=available_models,
+            index=available_models.index(active_model) if active_model in available_models else 0
+        )
+
+        if selected_model != active_model:
+            DataManager.set_active_model(selected_model)
+            st.rerun()
+
+        # Manage Models
+        with st.expander("Manage Models"):
+            new_model_name = st.text_input("Add new model", placeholder="e.g. gemini-1.5-pro")
+            if st.button("Add Model"):
+                if new_model_name and new_model_name.strip():
+                    DataManager.add_model(new_model_name.strip())
+                    st.success(f"Added {new_model_name}")
+                    st.rerun()
+
+            st.caption("Existing Models:")
+            for m in available_models:
+                col_m1, col_m2 = st.columns([4, 1])
+                with col_m1:
+                    st.write(m)
+                with col_m2:
+                    if st.button("🗑️", key=f"del_model_{m}", help=f"Delete {m}"):
+                        DataManager.delete_model(m)
+                        st.rerun()
+
+        # Rate Limits (Per Selected Model)
+        limit_min, limit_day = DataManager.get_limits(selected_model)
+        st.caption(f"Rate Limits for **{selected_model}**")
         col_lim1, col_lim2 = st.columns(2)
         # Rate Limit Charts
-        stats = RateLimiter.get_usage_stats()
+        stats = RateLimiter.get_usage_stats(selected_model)
 
         with col_lim1:
-            new_limit_min = st.number_input("Req / Min", value=limit_min, min_value=1)
+            new_limit_min = st.number_input("Req / Min", value=limit_min, min_value=1, key=f"lim_min_{selected_model}")
             fig_min = create_donut_chart(stats["used_min"], new_limit_min, "Used")
             st.plotly_chart(fig_min, use_container_width=True, config={'displayModeBar': False})
 
         with col_lim2:
-            new_limit_day = st.number_input("Req / Day", value=limit_day, min_value=1)
+            new_limit_day = st.number_input("Req / Day", value=limit_day, min_value=1, key=f"lim_day_{selected_model}")
             fig_day = create_donut_chart(stats["used_day"], new_limit_day, "Used")
             st.plotly_chart(fig_day, use_container_width=True, config={'displayModeBar': False})
 
         if new_limit_min != limit_min or new_limit_day != limit_day:
-            DataManager.save_limits(new_limit_min, new_limit_day)
-            st.success("Limits saved!")
+            DataManager.save_limits(new_limit_min, new_limit_day, selected_model)
+            st.success(f"Limits saved for {selected_model}!")
 
         st.divider()
 
@@ -242,6 +284,9 @@ def initialize_batch_generation(script_text: str):
 
     successful_tasks = []
 
+    # Get Active Model
+    active_model = DataManager.get_active_model()
+
     for idx, task in enumerate(parsed_tasks):
         char_name = task["char_name"]
         status_text.text(f"Generating audio for: {task['filename']} ({char_name})...")
@@ -253,23 +298,27 @@ def initialize_batch_generation(script_text: str):
         style = task["config"]["style"]
 
         # Check Rate Limit
-        allowed, msg = RateLimiter.check_limit()
+        allowed, msg = RateLimiter.check_limit(active_model)
         if not allowed:
             st.error(f"Stopped at {task['filename']}: {msg}")
             break
 
         try:
+            # Get Active Model for generation
+            active_model = DataManager.get_active_model()
+
             # Call TTS Engine
             success = generate_speech(
                 api_key=api_key,
                 text=task["text"],
                 voice_name=voice,
                 style_instructions=style,
-                output_path=output_file
+                output_path=output_file,
+                model_name=active_model
             )
 
             if success:
-                RateLimiter.log_request()
+                RateLimiter.log_request(active_model)
                 HistoryManager.add_entry(char_name, task["text"], voice, style, output_file)
                 task["versions"].append(output_file)
                 successful_tasks.append(task)
@@ -369,8 +418,11 @@ def regenerate_task_audio(task, temp_dir):
         st.error("Missing API Key or Temp Directory.")
         return
 
+    # Get Active Model
+    active_model = DataManager.get_active_model()
+
     # Check Rate Limit
-    allowed, msg = RateLimiter.check_limit()
+    allowed, msg = RateLimiter.check_limit(active_model)
     if not allowed:
         st.error(f"Cannot regenerate: {msg}")
         return
@@ -389,11 +441,12 @@ def regenerate_task_audio(task, temp_dir):
             text=task["text"],
             voice_name=voice,
             style_instructions=style,
-            output_path=output_file
+            output_path=output_file,
+            model_name=active_model
         )
 
         if success:
-            RateLimiter.log_request()
+            RateLimiter.log_request(active_model)
             HistoryManager.add_entry(task["char_name"], task["text"], voice, style, output_file)
             task["versions"].append(output_file)
             task["selected_index"] = len(task["versions"]) - 1
