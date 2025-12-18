@@ -12,30 +12,48 @@ HISTORY_CACHE_DIR = "history_cache"
 
 class RateLimiter:
     @staticmethod
-    def load_usage() -> List[float]:
-        """Loads request timestamps (unix epoch) from file."""
+    def load_usage() -> Dict[str, List[float]]:
+        """
+        Loads request timestamps (unix epoch) from file.
+        Returns a dict mapping model_name -> list of timestamps.
+        If file contains a list (old format), it migrates it to the current active model or default.
+        """
         if not os.path.exists(USAGE_LOG_FILE):
-            return []
+            return {}
         try:
             with open(USAGE_LOG_FILE, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+
+            # Backward compatibility: if list, wrap it in a dict under the default model
+            if isinstance(data, list):
+                active_model = DataManager.get_active_model()
+                return {active_model: data}
+
+            if isinstance(data, dict):
+                return data
+
+            return {}
         except (json.JSONDecodeError, IOError):
-            return []
+            return {}
 
     @staticmethod
-    def save_usage(timestamps: List[float]):
-        """Saves request timestamps to file."""
+    def save_usage(usage_data: Dict[str, List[float]]):
+        """Saves request timestamps map to file."""
         with open(USAGE_LOG_FILE, "w") as f:
-            json.dump(timestamps, f)
+            json.dump(usage_data, f)
 
     @staticmethod
-    def check_limit() -> tuple[bool, str]:
+    def check_limit(model_name: str = None) -> tuple[bool, str]:
         """
-        Checks if the current request is within limits.
+        Checks if the current request is within limits for the specified (or active) model.
         Returns (True, "") if allowed, (False, error_message) if blocked.
         """
-        limit_min, limit_day = DataManager.get_limits()
-        timestamps = RateLimiter.load_usage()
+        if model_name is None:
+            model_name = DataManager.get_active_model()
+
+        limit_min, limit_day = DataManager.get_limits(model_name)
+        all_usage = RateLimiter.load_usage()
+        timestamps = all_usage.get(model_name, [])
         now = time.time()
 
         # Filter timestamps
@@ -43,29 +61,41 @@ class RateLimiter:
         last_day = [t for t in timestamps if now - t < 86400]
 
         if len(last_minute) >= limit_min:
-            return False, f"Rate limit exceeded: Max {limit_min} requests per minute."
+            return False, f"Rate limit exceeded for {model_name}: Max {limit_min} requests per minute."
 
         if len(last_day) >= limit_day:
-            return False, f"Rate limit exceeded: Max {limit_day} requests per day."
+            return False, f"Rate limit exceeded for {model_name}: Max {limit_day} requests per day."
 
         return True, ""
 
     @staticmethod
-    def log_request():
-        """Logs a successful request timestamp."""
-        timestamps = RateLimiter.load_usage()
+    def log_request(model_name: str = None):
+        """Logs a successful request timestamp for the specified model."""
+        if model_name is None:
+            model_name = DataManager.get_active_model()
+
+        all_usage = RateLimiter.load_usage()
+        if model_name not in all_usage:
+            all_usage[model_name] = []
+
+        timestamps = all_usage[model_name]
         now = time.time()
         timestamps.append(now)
 
         # Cleanup old logs (older than 24h)
         timestamps = [t for t in timestamps if now - t < 86400]
+        all_usage[model_name] = timestamps
 
-        RateLimiter.save_usage(timestamps)
+        RateLimiter.save_usage(all_usage)
 
     @staticmethod
-    def get_usage_stats() -> dict[str, int]:
-        """Returns current usage counts."""
-        timestamps = RateLimiter.load_usage()
+    def get_usage_stats(model_name: str = None) -> dict[str, int]:
+        """Returns current usage counts for the specified model."""
+        if model_name is None:
+            model_name = DataManager.get_active_model()
+
+        all_usage = RateLimiter.load_usage()
+        timestamps = all_usage.get(model_name, [])
         now = time.time()
 
         last_minute = [t for t in timestamps if now - t < 60]
