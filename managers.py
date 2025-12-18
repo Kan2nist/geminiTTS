@@ -106,6 +106,11 @@ class RateLimiter:
             "used_day": len(last_day)
         }
 
+    @staticmethod
+    def clear_usage():
+        """Clears all usage logs."""
+        RateLimiter.save_usage({})
+
 class HistoryManager:
     @staticmethod
     def ensure_cache_dir():
@@ -170,7 +175,7 @@ class HistoryManager:
 
     @staticmethod
     def clear_history():
-        """Clears the history list and deletes cached files."""
+        """Clears the history list, deletes cached files, and clears usage logs."""
         # clear files
         if os.path.exists(HISTORY_CACHE_DIR):
             shutil.rmtree(HISTORY_CACHE_DIR)
@@ -178,3 +183,6 @@ class HistoryManager:
 
         # clear json
         HistoryManager.save_history([])
+
+        # clear usage logs
+        RateLimiter.clear_usage()
