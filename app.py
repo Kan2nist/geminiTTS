@@ -92,9 +92,12 @@ def main():
     script_input = st.text_area("Script Input", height=300, placeholder="Hero | Hello there! | hero_01")
 
     if st.button("Generate Audio", type="primary"):
-        generate_audio_batch(script_input)
+        initialize_batch_generation(script_input)
 
-def generate_audio_batch(script_text: str):
+    if "batch_results" in st.session_state:
+        render_batch_review()
+
+def initialize_batch_generation(script_text: str):
     api_key = DataManager.get_api_key()
     if not api_key:
         st.error("Please enter your Gemini API Key in the settings.")
@@ -130,7 +133,9 @@ def generate_audio_batch(script_text: str):
             "char_name": char_name,
             "text": text,
             "filename": filename,
-            "config": characters[char_name]
+            "config": characters[char_name],
+            "versions": [],
+            "selected_index": 0
         })
 
     if errors:
@@ -142,57 +147,181 @@ def generate_audio_batch(script_text: str):
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    # Create temp directory
-    with tempfile.TemporaryDirectory() as temp_dir:
-        generated_files = []
+    # Create persistent temp directory
+    # If a temp dir already exists from a previous session, we might want to use it or create a new one.
+    if "batch_temp_dir" in st.session_state and os.path.exists(st.session_state["batch_temp_dir"]):
+         shutil.rmtree(st.session_state["batch_temp_dir"], ignore_errors=True)
 
-        for idx, task in enumerate(parsed_tasks):
-            char_name = task["char_name"]
-            status_text.text(f"Generating audio for: {task['filename']} ({char_name})...")
+    temp_dir = tempfile.mkdtemp()
+    st.session_state["batch_temp_dir"] = temp_dir
 
-            output_file = os.path.join(temp_dir, f"{task['filename']}.wav")
-            voice = task["config"]["voice"]
-            style = task["config"]["style"]
+    successful_tasks = []
 
-            try:
-                # Call TTS Engine
-                success = generate_speech(
-                    api_key=api_key,
-                    text=task["text"],
-                    voice_name=voice,
-                    style_instructions=style,
-                    output_path=output_file
-                )
+    for idx, task in enumerate(parsed_tasks):
+        char_name = task["char_name"]
+        status_text.text(f"Generating audio for: {task['filename']} ({char_name})...")
 
-                if success:
-                    generated_files.append(output_file)
-                else:
-                    st.error(f"Failed to generate audio for {task['filename']}")
-            except Exception as e:
-                st.error(f"Error generating {task['filename']}: {str(e)}")
+        # Initial version file
+        output_filename = f"{task['filename']}_v1.wav"
+        output_file = os.path.join(temp_dir, output_filename)
+        voice = task["config"]["voice"]
+        style = task["config"]["style"]
 
-            progress_bar.progress((idx + 1) / len(parsed_tasks))
-
-        if generated_files:
-            # Create ZIP
-            zip_path = os.path.join(temp_dir, "voiceovers.zip")
-            with zipfile.ZipFile(zip_path, 'w') as zipf:
-                for file_path in generated_files:
-                    zipf.write(file_path, arcname=os.path.basename(file_path))
-
-            # Read ZIP into memory for download button
-            with open(zip_path, "rb") as f:
-                zip_data = f.read()
-
-            st.success("Generation Complete!")
-            st.download_button(
-                label="Download Voiceovers (.zip)",
-                data=zip_data,
-                file_name="voiceovers.zip",
-                mime="application/zip"
+        try:
+            # Call TTS Engine
+            success = generate_speech(
+                api_key=api_key,
+                text=task["text"],
+                voice_name=voice,
+                style_instructions=style,
+                output_path=output_file
             )
+
+            if success:
+                task["versions"].append(output_file)
+                successful_tasks.append(task)
+            else:
+                st.error(f"Failed to generate audio for {task['filename']}")
+        except Exception as e:
+            st.error(f"Error generating {task['filename']}: {str(e)}")
+
+        progress_bar.progress((idx + 1) / len(parsed_tasks))
+
+    if successful_tasks:
+        st.session_state["batch_results"] = successful_tasks
+        st.rerun()
+    else:
+        st.warning("No files were generated.")
+
+def render_batch_review():
+    st.divider()
+    st.subheader("🎧 Review & Download")
+
+    if st.button("Start New Batch", key="start_new_batch_btn"):
+        if "batch_temp_dir" in st.session_state and os.path.exists(st.session_state["batch_temp_dir"]):
+            shutil.rmtree(st.session_state["batch_temp_dir"], ignore_errors=True)
+        if "batch_results" in st.session_state:
+            del st.session_state["batch_results"]
+        if "batch_temp_dir" in st.session_state:
+            del st.session_state["batch_temp_dir"]
+        st.rerun()
+
+    results = st.session_state["batch_results"]
+    temp_dir = st.session_state.get("batch_temp_dir")
+
+    for idx, task in enumerate(results):
+        with st.container():
+            st.markdown(f"### {task['filename']} ({task['char_name']})")
+            st.text(f"\"{task['text']}\"")
+
+            # Version Selector
+            num_versions = len(task["versions"])
+            selected_idx = task["selected_index"]
+
+            col1, col2 = st.columns([3, 1])
+
+            with col1:
+                # If multiple versions, let user choose
+                if num_versions > 1:
+                    version_options = [f"Version {i+1}" for i in range(num_versions)]
+                    # Create a unique key for this radio button
+                    selected_v_label = st.radio(
+                        "Select Version",
+                        options=version_options,
+                        index=selected_idx,
+                        key=f"ver_sel_{idx}",
+                        horizontal=True
+                    )
+                    # Update selected index based on selection
+                    new_idx = version_options.index(selected_v_label)
+                    if new_idx != selected_idx:
+                        task["selected_index"] = new_idx
+                        st.rerun()
+
+                current_file = task["versions"][task["selected_index"]]
+                st.audio(current_file)
+
+            with col2:
+                # Regenerate Button
+                if st.button(f"Regenerate", key=f"regen_{idx}"):
+                    regenerate_task_audio(task, temp_dir)
+                    st.rerun()
+
+            st.divider()
+
+    # Download ZIP Button
+    st.subheader("Download Final Results")
+
+    # Check if a zip has already been created for this batch, or create one if requested
+    if st.button("Prepare Download"):
+        zip_path = create_final_zip(results, temp_dir)
+        if zip_path:
+            st.session_state["final_zip_path"] = zip_path
+            st.rerun()
+
+    if "final_zip_path" in st.session_state and os.path.exists(st.session_state["final_zip_path"]):
+        with open(st.session_state["final_zip_path"], "rb") as f:
+            zip_data = f.read()
+
+        st.download_button(
+            label="Download Voiceovers (.zip)",
+            data=zip_data,
+            file_name="voiceovers.zip",
+            mime="application/zip"
+        )
+
+def regenerate_task_audio(task, temp_dir):
+    api_key = DataManager.get_api_key()
+    if not api_key or not temp_dir:
+        st.error("Missing API Key or Temp Directory.")
+        return
+
+    # Generate new version
+    version_count = len(task["versions"]) + 1
+    output_filename = f"{task['filename']}_v{version_count}.wav"
+    output_file = os.path.join(temp_dir, output_filename)
+
+    voice = task["config"]["voice"]
+    style = task["config"]["style"]
+
+    try:
+        success = generate_speech(
+            api_key=api_key,
+            text=task["text"],
+            voice_name=voice,
+            style_instructions=style,
+            output_path=output_file
+        )
+
+        if success:
+            task["versions"].append(output_file)
+            task["selected_index"] = len(task["versions"]) - 1
+            st.success(f"Regenerated {task['filename']}")
         else:
-            st.warning("No files were generated.")
+            st.error(f"Failed to regenerate {task['filename']}")
+    except Exception as e:
+        st.error(f"Error regenerating: {str(e)}")
+
+def create_final_zip(results, temp_dir):
+    if not temp_dir or not os.path.exists(temp_dir):
+        st.error("Temporary directory not found.")
+        return None
+
+    zip_path = os.path.join(temp_dir, "voiceovers_final.zip")
+
+    try:
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for task in results:
+                # Get selected version
+                selected_file = task["versions"][task["selected_index"]]
+                if os.path.exists(selected_file):
+                    # Use original filename for the zip entry
+                    zip_entry_name = f"{task['filename']}.wav"
+                    zipf.write(selected_file, arcname=zip_entry_name)
+        return zip_path
+    except Exception as e:
+        st.error(f"Error creating ZIP: {str(e)}")
+        return None
 
 if __name__ == "__main__":
     import sys
